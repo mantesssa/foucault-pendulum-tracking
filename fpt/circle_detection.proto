@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+// положение ограничивающей рамки
+message BoundingBox {
+    int32 x_min = 1;
+    int32 y_min = 2;
+    int32 x_max = 3;
+    int32 y_max = 4;
+}
+
+// информация о объекте
+message Detection {
+    int32 object_id = 1;
+    BoundingBox bbox = 2;
+}
+
+// данные о объектах на обработанном кадре
+message Data {
+    int32 frame_id = 1; // номер кадра
+    repeated Detection detections = 2; // список найденных кругов
+}
+
+// структура для запроса данных
+message RequestData {
+    string message = 1; // запасное поле для передачи доп данных запроса
+}
+
+service CircleDetectionService {
+    // метод запрашивает с сервера поток данных Data
+    rpc GetStreamData(RequestData) returns (stream Data);
+}
