@@ -1,21 +1,28 @@
-**Foucault pendulum tracking**
+# Foucault pendulum tracking
+Проект направлен на отслеживание и получение кинетических характеристик шара маятника Фуко в пространстве кадра на прямой трансялции доступной по [ссылке](http://pendelcam.kip.uni-heidelberg.de/mjpg/video.mjpg)
 
 
+Реализация обнаружения шара от маятника производилась с помощью:
+- Метода градиента Хафа [client1.py](client1.py)
+- Каскада Хаара [client2.py](client2.py)
+- Нейронной сети YOLOv8 [client3.py](client3.py)
 
-Схема
+
+## Схема
 ![scheme](fpt/uf.png)
 
-Запуск:
+## Запуск:
 ```
 python vserver.py
-python client2.py    # classic cv
-       client2v2.py  # Haar Cascade classifier
-       client3.py    # YOLOv8n
+python client1.py  # classic cv
+       client2.py  # Haar Cascade classifier
+       client3.py  # YOLOv8n
 python vserver.py  
 ```
 
 
-Реализация client2.py
+## Реализация 
+### [client1.py](https://github.com/mantesssa/foucault-pendulum-tracking/blob/main/fpt/client1.py)
 
 1. Обрезаема изображение в области интереса
 2. Конвертируем в оттенки серого
@@ -26,7 +33,7 @@ python vserver.py
 7. Рисуем bbox и вектор
 8. отправляем данные об обнаружении клиенту по grpc
 
-Реализация client2v2.py
+### [client2.py](https://github.com/mantesssa/foucault-pendulum-tracking/blob/main/fpt/client2.py)
 
 Обучение происходило на том же датасете что и нейронка. Позитивные образцы были собраны из ограничивающих рамок набора данных, негативные образцы были выбраны случайными картинками на изображениях из набора данных которые не пересекаются с bbox шара
 Обучение длилось 10 этапов.
@@ -40,7 +47,7 @@ python vserver.py
 4. Рисуем bbox и вектор
 5. отправляем данные об обнаружении клиенту по grpc
 
-Реализация client3.py
+### [client3.py](https://github.com/mantesssa/foucault-pendulum-tracking/blob/main/fpt/client3.py)
 
 Для обучения нейронной сети использовался набор данных из размеченных кадров из стрима и составил 897 картинок.
 Модель: YOLOv8n.
@@ -48,7 +55,7 @@ python vserver.py
 Размер входного изображения 320 пикселя.
 Размер батча = 64.
 
-Результаты обучения:
+#### Результаты обучения:
 Box(P=1, R=1, mAP50=0.995,  mAP50-95=0.838)
 
 
