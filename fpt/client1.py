@@ -40,6 +40,11 @@ class CircleDetectionServer:
         except KeyboardInterrupt:
             self.server.stop(0)
 
+    def stop(self):
+        print("Stopping server...")
+        self.server.stop(0)
+        print("Server stopped.")
+
 
 def add_detection_data(frame_id, detections):
     data = circle_detection_pb2.Data(
@@ -67,7 +72,7 @@ class TCPClient:
         self.server_port = server_port
         self.grpc_port = grpc_port
         self.client_socket = None
-        self.cascade = cv2.CascadeClassifier('./weights/cascade.xml')
+        self.model = YOLO('./weights/best.pt')
 
 
     def connect(self):
@@ -83,56 +88,48 @@ class TCPClient:
             if not chunk:
                 print("no data recved")
                 break
-
             bytes += chunk
             a = bytes.find(b'\xff\xd8')
             b = bytes.find(b'\xff\xd9')
-
             if a != -1 and b != -1:
                 jpg = bytes[a:b + 2]
                 bytes = bytes[b + 2:]
                 frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
                 yield frame
 
+    # def disconnect(self):
+    #     print("disconnecting")  # do not work
+    #     if self.client_socket:
+    #         print("disconecting???")
+    #         self.client_socket.close() # виснет здесь
+
     def disconnect(self):
-        print("disconnecting")  # do not work
         if self.client_socket:
             self.client_socket.close()
+            self.client_socket = None
+            print("Disconnected from server")
 
-    def detect_ball_haar(self, image, prev_detection):
 
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        detections = self.cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=35, minSize=(14, 14), maxSize=(32, 32))
-        # print("detections", detections)
+    def get_nearest_circle(self, circles, previous_circle):
+        # cv2.circle(frame, (x1 + 100, y1 + 90), 12, (0, 255, 0), 4)
+        if previous_circle is None:
+            return circles[0]  # Return the first detecton if there is no previous detection
 
-        nearest_detect = None
-        if len(detections) > 0:
-            if prev_detection is None:
-                x, y, w, h = detections[0]
-                return x, y, x+w, y+h
+        min_dist = float('inf')
+        nearest_circle = None
+        prev_x, prev_y, _ = previous_circle
 
-            min_dist = float('inf')
-            prev_x1, prev_y1, prev_x2, prev_y2 = prev_detection
-            prev_cx, prev_cy = (prev_x1 + prev_x2) / 2, (prev_y1 + prev_y2) / 2
-
-            for detect in detections:
-                x, y, w, h = detect
-                detect = (x, y, x+w, y+h)
-
-                now_x1, now_y1, now_x2, now_y2 = detect
-                now_cx, now_cy = (now_x1 + now_x2) / 2, (now_y1 + now_y2) / 2
-                dist = np.sqrt((now_cx - prev_cx) ** 2 + (now_cy - prev_cy) ** 2)
-
-                if dist < min_dist:
-                    min_dist = dist
-                    nearest_detect = detect
-
-        return nearest_detect
+        for circle in circles:
+            x, y, r = circle
+            dist = np.sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
+            if dist < min_dist:
+                min_dist = dist
+                nearest_circle = circle
+        return nearest_circle
 
 
 
-
-    def draw_vector(self, image, detection, prev_position):
+    def draw_ball_and_vector(self, image, detection, prev_position):
         x1, y1, x2, y2 = detection
         px1, py1, px2, py2 = prev_position
 
@@ -141,42 +138,79 @@ class TCPClient:
         x_c = int((x1 + x2)/2)
         y_c = int((y1 + y2)/2)
 
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
         cv2.arrowedLine(image, (x_c, y_c), (int(x_c - vx * 1.5), int(y_c - vy * 1.5)), (255, 0, 0), 2)
 
     def detect(self):
         video_stream = self.get_video_stream()
-        frame_id = 0
+
         roi = (210, 120, 400, 300)  # Region of interest coordinates
         crop_x1, crop_y1, crop_x2, crop_y2 = roi
-        prev_detection = None
+        # kernel = np.ones((3, 3), np.uint8)
+
+
+
+        prev_position = None
+        frame_id = 0
+        previous_circle = None
+        detection = None
+        object_detector = cv2.createBackgroundSubtractorMOG2(detectShadows=True)
+
+
 
         for frame in video_stream:
             now_frame = frame[crop_y1:crop_y2, crop_x1:crop_x2]
-            detection = self.detect_ball_haar(now_frame, prev_detection)
 
-            if detection is not None:
-                x1, y1, x2, y2 = detection
-                x1 = crop_x1 + x1
-                y1 = crop_y1 + y1
+            gray = cv2.cvtColor(now_frame, cv2.COLOR_BGR2GRAY)
+            mask = object_detector.apply(gray)
 
-                x2 = crop_x1 + x2
-                y2 = crop_y1 + y2
-                detection = (x1, y1, x2, y2)
+            gray_blurred = cv2.GaussianBlur(mask, (5, 5), 0)
+            # cv2.imshow('Foucault Pendulum Detection', gray_blurred)
 
-                cv2.rectangle(frame, (detection[0], detection[1]), (detection[2], detection[3]), (0, 0, 255), 2)
-                if prev_detection is not None:
-                    self.draw_vector(frame, detection, prev_detection)
+            circles = cv2.HoughCircles(
+                gray_blurred,
+                cv2.HOUGH_GRADIENT,
+                dp=1.2,
+                minDist=10,
+                param1=40,
+                param2=20,
+                minRadius=7,
+                maxRadius=16
+            )
 
-                add_detection_data(frame_id, [detection])
+            # If circles are detected, draw them on the original frame
+            if circles is not None:
+                circles = np.round(circles[0, :]).astype("int")
+                nearest_circle = self.get_nearest_circle(circles, previous_circle)
+                if nearest_circle is not None:
+                    x, y, r = nearest_circle
+                    x1 = crop_x1 + x - r
+                    y1 = crop_y1 + y - r
+                    x2 = crop_x1 + x + r
+                    y2 = crop_y1 + y + r
+                    detection = (x1, y1, x2, y2)
 
-            cv2.imshow("Ball Tracking", frame)
+                    if previous_circle is not None:
+                        self.draw_ball_and_vector(frame, detection, prev_position)
+
+                    add_detection_data(frame_id, [detection])
+
+                    previous_circle = nearest_circle
+                    # cv2.circle(frame, (x1 + x, y1 + y), r, (0, 255, 0), 4)
+                else:
+                    previous_circle = None
+
+            # Display the frame with detected circles
+            cv2.imshow('Foucault Pendulum Detection', frame)
+            # Exit loop if 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-            prev_detection = detection
+            prev_position = detection
             frame_id += 1
 
         self.disconnect()
         cv2.destroyAllWindows()
+
 
 def run_server():
     server = CircleDetectionServer('localhost:50052')
@@ -186,6 +220,6 @@ if __name__ == '__main__':
     streaming_server_thread = threading.Thread(target=run_server) # в паралельном потоке запускаем grpc сервер для отпавки координат
     streaming_server_thread.start()
 
-    client = TCPClient()
+    client = TCPClient('127.0.0.1', 9999)
     client.connect()
     client.detect()
