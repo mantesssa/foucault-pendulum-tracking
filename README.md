@@ -3,9 +3,9 @@
 
 
 Реализация обнаружения шара от маятника производилась с помощью:
-- Метода градиента Хафа [client1.py](client1.py)
-- Каскада Хаара [client2.py](client2.py)
-- Нейронной сети YOLOv8 [client3.py](client3.py)
+- Метода градиента Хафа [client1.py](#client1py)
+- Каскада Хаара [client2.py](#client2py)
+- Нейронной сети YOLOv8 [client3.py](#client3py)
 
 
 ## Схема
